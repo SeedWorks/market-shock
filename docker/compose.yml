@@ -1,0 +1,101 @@
+services:
+  # ============================================
+  # Kafka 인프라 (KRaft 모드 - Zookeeper 불필요)
+  # ============================================
+
+  kafka:
+    image: apache/kafka:4.1.1
+    container_name: marketshock-kafka
+    hostname: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      # KRaft 모드 설정
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # 단일 브로커 환경 설정
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_CLUSTER_ID: marketshock-pipeline-cluster-001
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - marketshock-network
+
+  # Kafka 웹 UI (모니터링용)
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: marketshock-kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: marketshock-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    networks:
+      - marketshock-network
+
+# ============================================
+  # 애플리케이션 서비스
+  # ============================================
+
+  producer:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.python
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ../src:/app
+    env_file:
+      - ../.env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    working_dir: /app
+    command: python api_client.py  # ⚠️ src/ 없음! 볼륨 마운트로 /app에 직접 복사됨
+    networks:
+      - marketshock-network
+
+
+  # 대화형 셸 (디버깅용)
+  shell:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.python
+    volumes:
+      - ../data:/app/data
+      - ../output:/app/output
+      - ../src:/app
+    env_file:
+      - ../.env
+    working_dir: /app
+    stdin_open: true
+    tty: true
+    command: /bin/bash
+
+volumes:
+  kafka-data:
+
+# ============================================
+# 네트워크 정의 (Phase 4 Spark 연동 대비)
+# ============================================
+networks:
+  marketshock-network:
+    driver: bridge
