@@ -22,7 +22,9 @@ class UpbitTickerWS:
         self.ws = None
 
         # Kafka 설정
-        self.kafka_topic = "market-ticker"
+        self.ticker_topic = "market-ticker"
+        self.candle_topic = "market-candle"
+
         self.producer = KafkaProducer(
             bootstrap_servers="kafka:9092",
             key_serializer=lambda k: k.encode("utf-8"),
@@ -48,6 +50,12 @@ class UpbitTickerWS:
                 "codes": self.codes,
                 # 실시간 데이터만 수신 (스냅샷 제외)
                 "isOnlyRealtime": True
+            },
+            # 2️⃣ 1초봉 캔들 구독
+            {   
+                # 실시간 1초봉 캔들 스트림
+                "type": "candle.1s",
+                "codes": self.codes
             }
         ]
 
@@ -59,36 +67,62 @@ class UpbitTickerWS:
         WebSocket으로부터 메시지를 수신할 때마다 호출
         - 원본 JSON 파싱
         - 프로젝트에서 사용할 필드만 추출 및 타입 정리
+        - on_message
+        ├─ type == "ticker"     → ticker 파싱 → handle_ticker
+        └─ type == "candle.1s"  → candle 파싱 → handle_candle_1s
+        └─ type == "candle.1m"  → candle 파싱 → handle_candle_1m
         """
         try:
             # 수신 데이터(JSON 문자열 → dict)
             data = json.loads(message)
+            msg_type = data.get("type")
 
-            # Upbit 원본 필드 → 프로젝트 표준 스키마로 정규화
-            filtered = {
-                "code": data["code"],                             # 마켓 코드 (KRW-BTC)
-                "trade_price": float(data["trade_price"]),        # 현재가
-                "acc_trade_volume_24h": float(
-                    data["acc_trade_volume_24h"]
-                ),                                                 # 24시간 누적 거래량
-                "timestamp": int(data["timestamp"]),              # 이벤트 시각 (ms)
-                "signed_change_rate": float(
-                    data["signed_change_rate"]
-                )                                                  # 전일 대비 변동률
-            }
+            if msg_type == "ticker":
+                self.parse_ticker(data)
 
-            # 정규화된 데이터를 후속 처리로 전달
-            self.handle_data(filtered)
+            elif msg_type == "candle.1s":
+                self.parse_candle_1s(data)
+            
+            else:
+                print("Unknown message type:", msg_type)
+
 
         except Exception as e:
             # 파싱 실패 또는 필드 누락 시
             print("Parse error:", e)
             print("Raw message:", message)
 
-    def handle_data(self, data: dict):
+    # Upbit 원본 필드 → 프로젝트 표준 스키마로 정규화
+    def parse_ticker(self, data):
+        ticker = {
+            "code": data["code"],   # 마켓 코드 (KRW-BTC)
+            "trade_price": float(data["trade_price"]),  # 현재가
+            "acc_trade_volume_24h": float(data["acc_trade_volume_24h"]), # 24시간 누적 거래량
+            "timestamp": int(data["timestamp"]),  # 이벤트 시각 (ms)
+            "signed_change_rate": float(data["signed_change_rate"])  # 전일 대비 변동률
+        }
+
+        self.handle_ticker(ticker)
+    # Upbit 원본 필드 → 프로젝트 표준 스키마로 정규화
+    def parse_candle_1s(self, data):
+        candle = {
+            "type" : data["type"],   # 캔들타입 1s
+            "market": data["code"],   #마켓코드
+            "asset": data["code"].split("-")[1], #BTC 내부매핑
+            "opening_price" : data["opening_price"], #시가
+            "high_price" : data["high_price"], #고가
+            "low_price" : data["low_price"], #저가
+            "trade_price" : data["trade_price"], #종가
+            "candle_acc_trade_volume" : data["candle_acc_trade_volume"], #분 거래량
+            "candle_acc_trade_price" : data["candle_acc_trade_price"], #분 거래대금
+        }
+
+        self.handle_candle_1s(candle)
+
+    def handle_ticker(self, data: dict):
         """
-        비즈니스 로직 처리 지점
-        - Kafka Producer 전송
+        비즈니스 로직 처리 지점 
+        - Kafka Producer 전송 (ticker)
         - 로그 저장
         - Spark Streaming 입력 등으로 확장 가능
         """
@@ -99,7 +133,7 @@ class UpbitTickerWS:
 
         minute_dt = event_dt.replace(second=0, microsecond=0)
         #카프카에 추가된 파생 컬럼
-        message = {
+        ticker_message = {
             "exchange": "upbit",
             "market": data["code"],
             "asset": data["code"].split("-")[1],
@@ -110,16 +144,45 @@ class UpbitTickerWS:
             "event_time": event_dt.isoformat(),
             "minute_ts": minute_dt.isoformat()
         }
-
+        
+        #ticker_topic
         self.producer.send(
-            topic=self.kafka_topic,
-            key=message["market"],
-            value=message
+            topic=self.ticker_topic,
+            key=ticker_message["market"],
+            value=ticker_message
         )
 
         # 디버그 로그
-        print("[KAFKA SENT]", message)
+        print("[KAFKA_ticker SENT]", ticker_message)
         print(data)
+
+    def handle_candle_1s(self, data):
+        """
+        비즈니스 로직 처리 지점 
+        - Kafka Producer 전송 (candle)
+        - 로그 저장
+        - Spark Streaming 입력 등으로 확장 가능
+        """
+        candle_message = {
+            "exchange": "upbit",
+            "type": data["type"],
+            "market": data["market"],
+            "asset": data["asset"],
+            "opening_price": data["opening_price"],
+            "high_price": data["high_price"],
+            "low_price": data["low_price"],
+            "trade_price": data["trade_price"],
+            "candle_acc_trade_volume": data["candle_acc_trade_volume"],
+            "candle_acc_trade_price": data["candle_acc_trade_price"],
+        }
+
+        self.producer.send(
+            topic=self.candle_topic,
+            partition=0,
+            key=candle_message["market"],
+            value=candle_message
+        )
+        print("[KAFKA_candle_1s SENT]", candle_message)
 
     def on_error(self, ws, error):
         """
