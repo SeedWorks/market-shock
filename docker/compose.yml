@@ -63,12 +63,12 @@ services:
       kafka:
         condition: service_healthy
     volumes:
-      - ../src:/app
+      - ../src:/app/src
     env_file:
       - ../.env
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-    working_dir: /app
+    working_dir: /app/src
     command: python api_client.py  # ⚠️ src/ 없음! 볼륨 마운트로 /app에 직접 복사됨
     networks:
       - marketshock-network
@@ -82,13 +82,15 @@ services:
     volumes:
       - ../data:/app/data
       - ../output:/app/output
-      - ../src:/app
+      - ../src:/app/src
     env_file:
       - ../.env
-    working_dir: /app
+    working_dir: /app/src
     stdin_open: true
     tty: true
     command: /bin/bash
+    networks: 
+      - marketshock-network
 
 volumes:
   kafka-data:

@@ -11,7 +11,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 소스 코드 복사 (src/ 내용을 /app/에 복사)
-COPY src/ .
+COPY src/ /src/app
 
 # 환경 변수 설정
 ENV PYTHONUNBUFFERED=1

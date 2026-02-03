@@ -74,6 +74,8 @@ class UpbitTickerWS:
         """
         try:
             # 수신 데이터(JSON 문자열 → dict)
+            if isinstance(message, (bytes, bytearray)):
+                message = message.decode("utf-8") # upbit가 기본적으로 bytes로 들어와서 
             data = json.loads(message)
             msg_type = data.get("type")
 
