@@ -117,6 +117,7 @@ class UpbitTickerWS:
             "trade_price" : data["trade_price"], #종가
             "candle_acc_trade_volume" : data["candle_acc_trade_volume"], #분 거래량
             "candle_acc_trade_price" : data["candle_acc_trade_price"], #분 거래대금
+            "timestamp": int(data["timestamp"])
         }
 
         self.handle_candle_1s(candle)
@@ -165,6 +166,11 @@ class UpbitTickerWS:
         - 로그 저장
         - Spark Streaming 입력 등으로 확장 가능
         """
+        event_dt = datetime.fromtimestamp(
+            data["timestamp"] / 1000, tz=timezone.utc
+        )
+
+        minute_dt = event_dt.replace(second=0, microsecond=0)
         candle_message = {
             "exchange": "upbit",
             "type": data["type"],
@@ -176,6 +182,7 @@ class UpbitTickerWS:
             "trade_price": data["trade_price"],
             "candle_acc_trade_volume": data["candle_acc_trade_volume"],
             "candle_acc_trade_price": data["candle_acc_trade_price"],
+            "timestamp": int(data["timestamp"])
         }
 
         self.producer.send(
