@@ -16,23 +16,25 @@ class UpbitTickerWS:
     - 필요한 필드만 정규화하여 downstream(Kafka, Spark 등)으로 전달
     """
 
-    def __init__(self, codes=None):
+    def __init__(self, codes):
         # 구독할 마켓 코드 (기본: KRW-BTC)
         self.codes = codes or ["KRW-BTC"]
         self.ws = None
 
         # Kafka 설정
         self.ticker_topic = "market-ticker"
-        self.candle_topic = "market-candle"
+        self.candle_topic = "market-candle-1s"
 
         self.producer = KafkaProducer(
             bootstrap_servers="kafka:9092",
             key_serializer=lambda k: k.encode("utf-8"),
             value_serializer=lambda v: json.dumps(v).encode("utf-8"),
             acks="all",
-            retries=3,
+            retries=3,                 #안정성, 충분한 성능
+            max_in_flight_requests_per_connection=5, #5이하로 제한해야 순서 보장
             linger_ms=5
         )
+
 
     def on_open(self, ws):
         """
@@ -156,8 +158,8 @@ class UpbitTickerWS:
         )
 
         # 디버그 로그
-        print("[KAFKA_ticker SENT]", ticker_message)
-        print(data)
+        # print("[KAFKA_ticker SENT]", ticker_message)
+        # print("ticker:",data)
 
     def handle_candle_1s(self, data):
         """
@@ -187,11 +189,11 @@ class UpbitTickerWS:
 
         self.producer.send(
             topic=self.candle_topic,
-            partition=0,
             key=candle_message["market"],
             value=candle_message
         )
-        print("[KAFKA_candle_1s SENT]", candle_message)
+        # print("[KAFKA_candle_1s SENT]", candle_message)
+        # print("candle_1s:",data)
 
     def on_error(self, ws, error):
         """
@@ -225,7 +227,8 @@ class UpbitTickerWS:
 
 if __name__ == "__main__":
     # Ticker WebSocket 클라이언트 생성
-    client = UpbitTickerWS(codes=["KRW-BTC"])
+    CODES = ["KRW-BTC","KRW-ETH","KRW-XRP","KRW-ZIL","KRW-USDT","KRW-POKT","KRW-DOGE","KRW-AUCTION","KRW-F"]
+    client = UpbitTickerWS(CODES)
 
     # 메인 스레드 블로킹 방지를 위해 별도 스레드에서 실행
     ws_thread = threading.Thread(target=client.start,daemon=True)
