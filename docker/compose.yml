@@ -10,6 +10,8 @@ services:
     # user: root
     hostname: spark-master
     command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+    volumes:
+      - ../data:/data
     ports:
       - "7077:7077"   # Spark Master
       - "8081:8080"   # Spark Master UI
@@ -28,6 +30,8 @@ services:
       /opt/spark/bin/spark-class
       org.apache.spark.deploy.worker.Worker
       spark://spark-master:7077
+    volumes:
+      - ../data:/data
     environment:
       SPARK_WORKER_MEMORY: 2g
       SPARK_WORKER_CORES: 2
@@ -36,20 +40,22 @@ services:
     networks:
       - marketshock-network
 
-  upbit-streamling:
+  ticker_join:
     build:
       context: ..
       dockerfile: docker/Dockerfile.spark
-    container_name: marketshock-upbit-streaming
+    container_name: marketshock-ticker-join
     # Silver 파일 실행
     command: >
       /opt/spark/bin/spark-submit
       --master spark://spark-master:7077
-      /app/src/upbit_streamling.py
+      /app/src/ticker_join.py
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     volumes:
       - ../src:/app/src
+      - ../data:/data
+      - ../output:/output
     depends_on:
       kafka:
         condition: service_healthy
