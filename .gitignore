@@ -8,3 +8,16 @@ wheels/
 
 # Virtual environments
 .venv
+
+
+# Spark / Streaming
+data/checkpoint/
+data/_debug_candidate/
+data/_debug_decision/
+
+# Spark state / metadata
+*.crc
+*.delta
+*_metadata
+schema
+data/
