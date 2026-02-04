@@ -15,14 +15,15 @@ from pyspark.sql.types import StructType, StructField, StringType, IntegerType, 
 
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 TOPIC_TICKER = "market-ticker"
-TOPIC_CANDLE = "market-candle"  
+TOPIC_CANDLE = "market-candle-1s"  
 
 
 def create_spark_session() -> SparkSession:
     spark = ( SparkSession.builder \
         .appName("MetroStreaming") \
         .master("spark://spark-master:7077") \
-        .config("spark.cores.max", "1") \
+        .config("spark.cores.max", "2") \
+        .config("spark.sql.shuffle.partitions", "3")
         .config("spark.executor.memory", "512m") \
         .getOrCreate()
     )
@@ -55,7 +56,7 @@ def read_topic(spark, topic):
         .format("kafka")
         .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS)
         .option("subscribe", topic)
-        .option("startingOffsets", "latest")
+        .option("startingOffsets", "earliest")
         .load()
         .selectExpr("CAST(value as STRING) as value")
     )
@@ -79,12 +80,16 @@ def ticker_10s_features(base):
         )
         .withColumn("return_10s", (col("last_price") - col("first_price")) / col("first_price"))
         .withColumn("abs_return_10s", fabs(col("return_10s")))
+        .withColumn("window_start", col("win.start"))
+        .withColumn("window_end", col("win.end"))
+        .withColumn("minute_ts", date_trunc("minute", col("win.start")))
         .withColumn("price_spike", col("abs_return_10s") >= lit(0.003))
         .select(
             "asset", "market",
             col("win.start").alias("window_start"),
             col("win.end").alias("window_end"),
-            "first_price", "last_price", "return_10s", "abs_return_10s", "price_spike"
+            "minute_ts", 
+            "first_price", "last_price", "return_10s", "abs_return_10s", "price_spike", "minute_ts"
         )
     )
     return w
@@ -140,13 +145,13 @@ def candle_confirm(c10s, b1m):
         )
         .select(
             "asset", "market", "window_start", "window_end",
-            "vol_10s", "notional_10s", "baseline_vol_1m", "baseline_notional_1m", "volume_confirm"
+            "vol_10s", "notional_10s", "baseline_vol_1m", "baseline_notional_1m", "volume_confirm", "minute_ts"
         )
     )
 
 def join_spike(t10s, confirm):
     out = (
-        t10s.join(confirm, on=["asset", "market", "window_start", "window_end"], how='inner')
+        t10s.join(confirm, on=["asset", "market", "minute_ts"], how='inner')
         .withColumn("is_spike", col("price_spike") & col("volume_confirm"))
     )
     return out
@@ -169,6 +174,23 @@ def main():
 
     tbase = parse_ticker(ticker_raw)
     cbase = parse_candle(candle_raw)
+    q_dbg_tbase = (
+        tbase.writeStream
+        .format("console")
+        .outputMode("append")
+        .option("truncate", "false")
+        .option("checkpointLocation", "/data/checkpoint/_dbg_tbase")
+        .start()
+    )
+
+    q_dbg_cbase = (
+        cbase.writeStream
+        .format("console")
+        .outputMode("append")
+        .option("truncate", "false")
+        .option("checkpointLocation", "/data/checkpoint/_dbg_cbase")
+        .start()
+    )
 
     t10s = ticker_10s_features(tbase)
     c10s = candle_10s_features(cbase)
