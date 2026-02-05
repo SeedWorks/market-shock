@@ -173,6 +173,17 @@ def write_console(df):
         .start()
     )
 
+def write_kafka(df):
+    return (
+        df.selectExpr("CAST(asset AS STRING) AS key", "to_json(struct(*)) AS value")
+        .writeStream
+        .format("kafka")
+        .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS)
+        .option("topic", "spike-alerts")
+        .option("checkpointLocation", "/data/checkpoint/ticker_kafka")
+        .start()
+    )
+
 def main():
     spark = create_spark_session()
 
@@ -207,6 +218,8 @@ def main():
     out = join_spike(t10s, confirm)
 
     q = write_console(out)
+    #  Kafka 발행 (추가)
+    q2 = write_kafka(out)
     spark.streams.awaitAnyTermination()
 
 if __name__ == '__main__':

@@ -21,7 +21,7 @@ services:
       - marketshock-network
 
   spark-worker:
-    build:                       # <-- 이렇게 추가!
+    build:                       
       context: ..
       dockerfile: docker/Dockerfile.spark
     container_name: marketshock-spark-worker
@@ -32,7 +32,48 @@ services:
       org.apache.spark.deploy.worker.Worker
       spark://spark-master:7077
     volumes:
-      - ../data:/silver:/data/silver
+      - ../data/silver:/data/silver
+      - spark_checkpoint:/data/checkpoint
+    environment:
+      SPARK_WORKER_MEMORY: 2g
+      SPARK_WORKER_CORES: 2
+    depends_on:
+      - spark-master
+    networks:
+      - marketshock-network
+  spark-worker-2:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.spark
+    container_name: marketshock-spark-worker-2
+    hostname: spark-worker-2
+    command: >
+      /opt/spark/bin/spark-class
+      org.apache.spark.deploy.worker.Worker
+      spark://spark-master:7077
+    volumes:
+      - ../data/silver:/data/silver
+      - spark_checkpoint:/data/checkpoint
+    environment:
+      SPARK_WORKER_MEMORY: 2g
+      SPARK_WORKER_CORES: 2
+    depends_on:
+      - spark-master
+    networks:
+      - marketshock-network
+
+  spark-worker-3:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.spark
+    container_name: marketshock-spark-worker-3
+    hostname: spark-worker-3
+    command: >
+      /opt/spark/bin/spark-class
+      org.apache.spark.deploy.worker.Worker
+      spark://spark-master:7077
+    volumes:
+      - ../data/silver:/data/silver
       - spark_checkpoint:/data/checkpoint
     environment:
       SPARK_WORKER_MEMORY: 2g
@@ -50,6 +91,7 @@ services:
     # Silver 파일 실행
     command: >
       /opt/spark/bin/spark-submit
+      --conf spark.cores.max=2
       --master spark://spark-master:7077
       /app/src/ticker_join.py
     environment:
@@ -58,11 +100,51 @@ services:
       - ../src:/app/src
       - ../data/silver:/data/silver
       - spark_checkpoint:/data/checkpoint
+      
       - ../output:/output
     depends_on:
       kafka:
         condition: service_healthy
       spark-master:
+        condition: service_started
+      spark-worker:
+        condition: service_started
+      spark-worker-2:
+        condition: service_started
+      spark-worker-3:
+        condition: service_started
+    networks:
+      - marketshock-network
+
+  total_compare:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.spark
+    container_name: marketshock-total-compare
+    # Silver 파일 실행
+    command: >
+      /opt/spark/bin/spark-submit
+      --master spark://spark-master:7077
+      --conf spark.cores.max=2
+      /app/src/total_compare.py
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    volumes:
+      - ../src:/app/src
+      - ../data/silver:/data/silver
+      - spark_checkpoint:/data/checkpoint
+      
+      - ../output:/output
+    depends_on:
+      kafka:
+        condition: service_healthy
+      spark-master:
+        condition: service_started
+      spark-worker:
+        condition: service_started
+      spark-worker-2:
+        condition: service_started
+      spark-worker-3:
         condition: service_started
     networks:
       - marketshock-network
@@ -76,6 +158,7 @@ services:
     command: >
       /opt/spark/bin/spark-submit
       --master spark://spark-master:7077
+      --conf spark.cores.max=2
       /app/src/binance_compare.py
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -83,11 +166,18 @@ services:
       - ../src:/app/src
       - ../data/silver:/data/silver
       - spark_checkpoint:/data/checkpoint
+      
       - ../output:/output
     depends_on:
       kafka:
         condition: service_healthy
       spark-master:
+        condition: service_started
+      spark-worker:
+        condition: service_started
+      spark-worker-2:
+        condition: service_started
+      spark-worker-3:
         condition: service_started
     networks:
       - marketshock-network
@@ -201,6 +291,69 @@ services:
     command: /bin/bash
     networks: 
       - marketshock-network
+
+
+  # ============================================
+  # InfluxDB (저장소) 
+  # ============================================
+  influxdb:
+    image: influxdb:2.7
+    container_name: marketshock-influxdb
+    ports:
+      - "8086:9999"  # 호스트에서 8086으로 접속하면 내부 9999로 연결됨
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=my-user
+      - DOCKER_INFLUXDB_INIT_PASSWORD=my-password123
+      - DOCKER_INFLUXDB_INIT_ORG=my-org
+      - DOCKER_INFLUXDB_INIT_BUCKET=market-data
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=my-super-secret-auth-token
+      - INFLUXD_HTTP_BIND_ADDRESS=:9999  # 포트를 9999로 명시적 고정
+    networks:
+      - marketshock-network
+
+  influx-saver:
+      image: apache/spark:3.5.1
+      container_name: marketshock-influx-saver
+      user: root
+      depends_on:
+        - spark-master
+        - influxdb
+      volumes:
+        - ../src:/app/src
+        - ../data:/data
+      environment:
+        - PYTHONUNBUFFERED=1  # <--- 이 줄을 추가하세요!
+        - HADOOP_USER_NAME=spark
+        - INFLUXDB_URL=http://marketshock-influxdb:9999
+        - INFLUXDB_TOKEN=my-super-secret-auth-token
+        - INFLUXDB_ORG=my-org
+        - INFLUXDB_BUCKET=market-data
+      # > 기호를 사용하면 줄바꿈이 자동으로 공백으로 치환되어 한 줄로 실행됩니다.
+      command: >
+        sh -c "
+        apt-get update && apt-get install -y procps &&
+        pip install --no-cache-dir requests influxdb-client &&
+        /opt/spark/bin/spark-submit
+        --master spark://spark-master:7077
+        --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1
+        --conf spark.driver.extraJavaOptions='-Duser.home=/tmp -Duser.name=spark'
+        --conf spark.executor.extraJavaOptions='-Duser.home=/tmp -Duser.name=spark'
+        /app/src/influx_saver.py
+        "
+      networks:
+        - marketshock-network
+
+  
+  # 본인의 시각화 서비스
+  grafana:
+    image: grafana/grafana-oss:latest
+    container_name: marketshock-grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - marketshock-network
+ 
 
 volumes:
   kafka-data:
