@@ -11,7 +11,8 @@ services:
     hostname: spark-master
     command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
     volumes:
-      - ../data:/data
+      - ../data/silver:/data/silver
+      - spark_checkpoint:/data/checkpoint
     ports:
       - "7077:7077"   # Spark Master
       - "8081:8080"   # Spark Master UI
@@ -31,7 +32,8 @@ services:
       org.apache.spark.deploy.worker.Worker
       spark://spark-master:7077
     volumes:
-      - ../data:/data
+      - ../data:/silver:/data/silver
+      - spark_checkpoint:/data/checkpoint
     environment:
       SPARK_WORKER_MEMORY: 2g
       SPARK_WORKER_CORES: 2
@@ -54,7 +56,8 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     volumes:
       - ../src:/app/src
-      - ../data:/data
+      - ../data/silver:/data/silver
+      - spark_checkpoint:/data/checkpoint
       - ../output:/output
     depends_on:
       kafka:
@@ -155,6 +158,7 @@ services:
 
 volumes:
   kafka-data:
+  spark_checkpoint:
 
 # ============================================
 # 네트워크 정의 (Phase 4 Spark 연동 대비)
