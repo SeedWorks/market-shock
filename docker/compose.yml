@@ -66,6 +66,31 @@ services:
         condition: service_started
     networks:
       - marketshock-network
+    
+  binance_compare:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.spark
+    container_name: marketshock-binance-compare
+    # Silver 파일 실행
+    command: >
+      /opt/spark/bin/spark-submit
+      --master spark://spark-master:7077
+      /app/src/binance_compare.py
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    volumes:
+      - ../src:/app/src
+      - ../data/silver:/data/silver
+      - spark_checkpoint:/data/checkpoint
+      - ../output:/output
+    depends_on:
+      kafka:
+        condition: service_healthy
+      spark-master:
+        condition: service_started
+    networks:
+      - marketshock-network
 
   kafka:
     image: apache/kafka:4.1.1
