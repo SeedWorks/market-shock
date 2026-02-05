@@ -9,6 +9,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col, from_json, window, count, avg, sum as fsum, abs as fabs,
     current_timestamp, to_timestamp, explode, max_by, min_by, date_trunc, coalesce, lit
+    ,expr, round as fround
 )
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, DoubleType, ArrayType, DateType, FloatType, LongType
 
@@ -80,6 +81,9 @@ def ticker_10s_features(base):
         )
         .withColumn("return_10s", (col("last_price") - col("first_price")) / col("first_price"))
         .withColumn("abs_return_10s", fabs(col("return_10s")))
+        .withColumn("pct_10s", col("return_10s") * lit(100.0))
+        .withColumn("pct_10s_round", fround(col("pct_10s"), 3))
+        .withColumn("direction", expr("CASE WHEN return_10s >= 0 THEN 'UP' ELSE 'DOWN' END"))
         .withColumn("window_start", col("win.start"))
         .withColumn("window_end", col("win.end"))
         .withColumn("minute_ts", date_trunc("minute", col("win.start")))
@@ -89,7 +93,8 @@ def ticker_10s_features(base):
             col("win.start").alias("window_start"),
             col("win.end").alias("window_end"),
             "minute_ts", 
-            "first_price", "last_price", "return_10s", "abs_return_10s", "price_spike", "minute_ts"
+            "first_price", "last_price", "return_10s", "abs_return_10s", "price_spike", "minute_ts",
+            "pct_10s_round", "direction", "price_spike"
         )
     )
     return w
@@ -153,7 +158,9 @@ def join_spike(t10s, confirm):
     out = (
         t10s.join(confirm, on=["asset", "market", "minute_ts"], how='inner')
         .withColumn("is_spike", col("price_spike") & col("volume_confirm"))
+       
     )
+    
     return out
 
 def write_console(df):
