@@ -159,7 +159,7 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       EXCHANGE: upbit
     working_dir: /app/src
-    command: python api_client.py
+    command: python api_client_upbit.py
     networks:
       - marketshock-network
     restart: unless-stopped
@@ -179,7 +179,7 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       EXCHANGE: binance
     working_dir: /app/src
-    command: python api_client2.py
+    command: python api_client_binance.py
     networks:
       - marketshock-network
     restart: unless-stopped
