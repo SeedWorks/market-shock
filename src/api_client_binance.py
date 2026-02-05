@@ -19,6 +19,7 @@ class BinanceTickerWS:
         self.ws = None
 
         self.ticker_topic = "market-ticker"
+        self.candle_topic = "market-candle-1s"
 
         self.producer = KafkaProducer(
             bootstrap_servers="kafka:9092",
@@ -32,16 +33,24 @@ class BinanceTickerWS:
 
     def build_ws_url(self) -> str:
         """
-        symbols 개수에 따라 단일(/ws) vs 멀티(/stream) URL 자동 선택
+            symbols 개수에 따라 단일(/ws) vs 멀티(/stream) URL 자동 선택
+            ✅ ticker + kline(1s) 동시 구독
         """
         base = "wss://stream.binance.com:9443"
+
+        interval = "1s"  # 필요하면 "1m" 등으로 변경
+
         if len(self.symbols) == 1:
-            # 단일 스트림
-            return f"{base}/ws/{self.symbols[0]}@ticker"
-        else:
-            # 멀티 스트림 (구독형태)
-            streams = "/".join([f"{s}@ticker" for s in self.symbols])
+            s = self.symbols[0]
+            # ✅ 단일 스트림에서도 combined stream으로 받는 게 관리 쉬움
+            streams = f"{s}@ticker/{s}@kline_{interval}"
             return f"{base}/stream?streams={streams}"
+        else:
+            streams = []
+            for s in self.symbols:
+                streams.append(f"{s}@ticker")
+                streams.append(f"{s}@kline_{interval}")
+            return f"{base}/stream?streams={'/'.join(streams)}"
 
     def on_open(self, ws):
         print("Binance WebSocket connected")
@@ -54,19 +63,21 @@ class BinanceTickerWS:
 
             msg = json.loads(message)
 
-            # ✅ 멀티스트림이면 wrapper {stream, data} 형태
-            data = msg.get("data", msg)   # 단일이면 msg 자체가 ticker payload
+            # ✅ combined stream wrapper {stream, data}
+            data = msg.get("data", msg)
 
-            # ticker 이벤트만 처리 (안전장치)
-            # 24hr ticker: e == "24hrTicker"
-            if data.get("e") != "24hrTicker":
+            etype = data.get("e")
+            if etype == "24hrTicker":
+                self.parse_ticker(data)
+            elif etype == "kline":
+                self.parse_candle_1s(data)   # ✅ 새로 추가
+            else:
                 return
-
-            self.parse_ticker(data)
 
         except Exception as e:
             print("Parse error:", e)
             print("Raw message:", message)
+
 
     def parse_ticker(self, data: dict):
         """
@@ -93,6 +104,32 @@ class BinanceTickerWS:
         }
 
         self.handle_ticker(ticker)
+
+    def parse_candle_1s(self, data):
+
+        """
+        binance kline -> 업비트 candle_message와 동일 스키마로 정규화
+        """
+        symbol = data["s"]          # BTCUSDT
+        k = data["k"]
+        interval = k["i"]           # "1s", "1m", ...
+
+        candle = {
+            "exchange": "binance",
+            "type": f"kline.{interval}",
+            "market": symbol,
+            "asset": symbol.replace("USDT", ""),  # 단일 USDT 기준 (필요시 확장)
+            "opening_price": float(k["o"]),
+            "high_price": float(k["h"]),
+            "low_price": float(k["l"]),
+            "trade_price": float(k["c"]),
+            "candle_acc_trade_volume": float(k["v"]),  # base volume
+            "candle_acc_trade_price": float(k["q"]),   # quote volume
+            "timestamp": int(data["E"])                # event time (ms)
+        }
+
+        self.handle_candle_1s(candle)
+
 
     def handle_ticker(self, data: dict):
         event_dt = datetime.fromtimestamp(data["timestamp"] / 1000, tz=timezone.utc)
@@ -129,6 +166,23 @@ class BinanceTickerWS:
         )
 
         print("[KAFKA_binance_ticker SENT]", ticker_message)
+
+    def handle_candle_1s(self, candle_message: dict):
+        """
+        비즈니스 로직 처리 지점 
+        - Kafka Producer 전송 (candle)
+        - 로그 저장
+        - Spark Streaming 입력 등으로 확장 가능
+        """      
+
+        self.producer.send(
+            topic=self.candle_topic,
+            key=candle_message["market"],
+            value=candle_message
+        )
+        
+        print("[KAFKA_binance_candle_1s SENT]", candle_message)
+        # print("candle_1s:",data)
 
     def on_error(self, ws, error):
         print("Error:", error)
