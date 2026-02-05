@@ -158,7 +158,7 @@ class UpbitTickerWS:
         )
 
         # 디버그 로그
-        # print("[KAFKA_ticker SENT]", ticker_message)
+        print("[KAFKA_ticker SENT]", ticker_message)
         # print("ticker:",data)
 
     def handle_candle_1s(self, data):
@@ -192,7 +192,7 @@ class UpbitTickerWS:
             key=candle_message["market"],
             value=candle_message
         )
-        # print("[KAFKA_candle_1s SENT]", candle_message)
+        print("[KAFKA_candle_1s SENT]", candle_message)
         # print("candle_1s:",data)
 
     def on_error(self, ws, error):
@@ -226,8 +226,8 @@ class UpbitTickerWS:
 
 
 if __name__ == "__main__":
-    # Ticker WebSocket 클라이언트 생성
-    CODES = ["KRW-BTC","KRW-ETH","KRW-XRP","KRW-ZIL","KRW-USDT","KRW-POKT","KRW-DOGE","KRW-AUCTION","KRW-F"]
+    # Ticker WebSocket 클라이언트 생성   "KRW-POKT" = 지움
+    CODES = ["KRW-BTC","KRW-ETH","KRW-XRP","KRW-ZIL","KRW-SOL","KRW-DOGE","KRW-AUCTION","KRW-ENSO"]
     client = UpbitTickerWS(CODES)
 
     # 메인 스레드 블로킹 방지를 위해 별도 스레드에서 실행

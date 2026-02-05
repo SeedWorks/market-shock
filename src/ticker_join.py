@@ -13,7 +13,7 @@ from pyspark.sql.functions import (
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, DoubleType, ArrayType, DateType, FloatType, LongType
 
 
-KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
 TOPIC_TICKER = "market-ticker"
 TOPIC_CANDLE = "market-candle-1s"  
 
