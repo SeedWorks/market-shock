@@ -114,10 +114,18 @@ class BinanceTickerWS:
         k = data["k"]
         interval = k["i"]           # "1s", "1m", ...
 
+        if symbol.endswith("USDT"):
+            base, quote = symbol[:-4], "USDT"
+        elif symbol.endswith("USDC"):
+            base, quote = symbol[:-4], "USDC"
+        else:
+            # fallback
+            base, quote = symbol, "UNKNOWN"
+
         candle = {
             "exchange": "binance",
             "type": f"kline.{interval}",
-            "market": symbol,
+            "market": f"{quote}-{base}",
             "asset": symbol.replace("USDT", ""),  # 단일 USDT 기준 (필요시 확장)
             "opening_price": float(k["o"]),
             "high_price": float(k["h"]),
@@ -167,21 +175,21 @@ class BinanceTickerWS:
 
         print("[KAFKA_binance_ticker SENT]", ticker_message)
 
-    def handle_candle_1s(self, candle_message: dict):
+    def handle_candle_1s(self, data: dict):
         """
         비즈니스 로직 처리 지점 
         - Kafka Producer 전송 (candle)
         - 로그 저장
         - Spark Streaming 입력 등으로 확장 가능
-        """      
+        """ 
 
         self.producer.send(
             topic=self.candle_topic,
-            key=candle_message["market"],
-            value=candle_message
+            key=data["market"],
+            value=data
         )
         
-        print("[KAFKA_binance_candle_1s SENT]", candle_message)
+        print("[KAFKA_binance_candle_1s SENT]", data)
         # print("candle_1s:",data)
 
     def on_error(self, ws, error):
