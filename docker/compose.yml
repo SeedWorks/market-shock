@@ -144,7 +144,7 @@ services:
   # 애플리케이션 서비스
   # ============================================
 
-  producer:
+  producer_upbit:
     build:
       context: ..
       dockerfile: docker/Dockerfile.python
@@ -157,11 +157,32 @@ services:
       - ../.env
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EXCHANGE: upbit
     working_dir: /app/src
-    command: python api_client.py  # ⚠️ src/ 없음! 볼륨 마운트로 /app에 직접 복사됨
+    command: python api_client.py
     networks:
       - marketshock-network
+    restart: unless-stopped
 
+  producer_binance:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.python
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ../src:/app/src
+    env_file:
+      - ../.env
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      EXCHANGE: binance
+    working_dir: /app/src
+    command: python api_client2.py
+    networks:
+      - marketshock-network
+    restart: unless-stopped
 
   # 대화형 셸 (디버깅용)
   shell:
