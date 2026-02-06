@@ -349,3 +349,5 @@ if __name__ == "__main__":
     main()
 
 #KRW-BTc, KRW-ENSO, KRW-ETH, KRW-SOL, 
+
+
