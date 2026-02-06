@@ -33,7 +33,48 @@ services:
       spark://spark-master:7077
     volumes:
       - ../data/silver:/data/silver
-      - spark_checkpoint:/data/checkpoints
+      - spark_checkpoint:/data/checkpoint
+    environment:
+      SPARK_WORKER_MEMORY: 2g
+      SPARK_WORKER_CORES: 2
+    depends_on:
+      - spark-master
+    networks:
+      - marketshock-network
+  spark-worker-2:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.spark
+    container_name: marketshock-spark-worker-2
+    hostname: spark-worker-2
+    command: >
+      /opt/spark/bin/spark-class
+      org.apache.spark.deploy.worker.Worker
+      spark://spark-master:7077
+    volumes:
+      - ../data/silver:/data/silver
+      - spark_checkpoint:/data/checkpoint
+    environment:
+      SPARK_WORKER_MEMORY: 2g
+      SPARK_WORKER_CORES: 2
+    depends_on:
+      - spark-master
+    networks:
+      - marketshock-network
+
+  spark-worker-3:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.spark
+    container_name: marketshock-spark-worker-3
+    hostname: spark-worker-3
+    command: >
+      /opt/spark/bin/spark-class
+      org.apache.spark.deploy.worker.Worker
+      spark://spark-master:7077
+    volumes:
+      - ../data/silver:/data/silver
+      - spark_checkpoint:/data/checkpoint
     environment:
       SPARK_WORKER_MEMORY: 2g
       SPARK_WORKER_CORES: 2
@@ -50,6 +91,7 @@ services:
     # Silver 파일 실행
     command: >
       /opt/spark/bin/spark-submit
+      --conf spark.cores.max=2
       --master spark://spark-master:7077
       /app/src/ticker_join.py
     environment:
@@ -58,11 +100,18 @@ services:
       - ../src:/app/src
       - ../data/silver:/data/silver
       - spark_checkpoint:/data/checkpoint
+      
       - ../output:/output
     depends_on:
       kafka:
         condition: service_healthy
       spark-master:
+        condition: service_started
+      spark-worker:
+        condition: service_started
+      spark-worker-2:
+        condition: service_started
+      spark-worker-3:
         condition: service_started
     networks:
       - marketshock-network
@@ -76,6 +125,7 @@ services:
     command: >
       /opt/spark/bin/spark-submit
       --master spark://spark-master:7077
+      --conf spark.cores.max=2
       /app/src/total_compare.py
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -83,11 +133,18 @@ services:
       - ../src:/app/src
       - ../data/silver:/data/silver
       - spark_checkpoint:/data/checkpoint
+      
       - ../output:/output
     depends_on:
       kafka:
         condition: service_healthy
       spark-master:
+        condition: service_started
+      spark-worker:
+        condition: service_started
+      spark-worker-2:
+        condition: service_started
+      spark-worker-3:
         condition: service_started
     networks:
       - marketshock-network
@@ -101,6 +158,7 @@ services:
     command: >
       /opt/spark/bin/spark-submit
       --master spark://spark-master:7077
+      --conf spark.cores.max=2
       /app/src/binance_compare.py
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -108,11 +166,18 @@ services:
       - ../src:/app/src
       - ../data/silver:/data/silver
       - spark_checkpoint:/data/checkpoint
+      
       - ../output:/output
     depends_on:
       kafka:
         condition: service_healthy
       spark-master:
+        condition: service_started
+      spark-worker:
+        condition: service_started
+      spark-worker-2:
+        condition: service_started
+      spark-worker-3:
         condition: service_started
     networks:
       - marketshock-network
