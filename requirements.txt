@@ -3,3 +3,5 @@ websocket-client==1.9.0
 python-dotenv==1.0.0
 kafka-python==2.0.2
 pyspark==3.5.1
+influxdb-client==1.41.0
+reactivex==4.1.0         
